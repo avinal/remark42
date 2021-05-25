@@ -208,11 +208,11 @@ type SMTPGroup struct {
 // NotifyGroup defines options for notification
 type NotifyGroup struct {
 	Type       []string `long:"type" env:"TYPE" description:"[deprecated, use user and admin types instead] types of notifications" choice:"none" choice:"telegram" choice:"email" choice:"slack" default:"none" env-delim:","` //nolint
-	UserTypes  []string `long:"user_types" env:"USER_TYPES" description:"types of user notifications" choice:"none" choice:"email" default:"none" env-delim:","`                                                                //nolint
+	UserTypes  []string `long:"user_types" env:"USER_TYPES" description:"types of user notifications" choice:"none" choice:"email" choice:"telegram" default:"none" env-delim:","`                                                                //nolint
 	AdminTypes []string `long:"admin_types" env:"ADMIN_TYPES" description:"types of admin notifications" choice:"none" choice:"telegram" choice:"email" choice:"slack" default:"none" env-delim:","`                            //nolint
 	QueueSize  int      `long:"queue" env:"QUEUE" description:"size of notification queue" default:"100"`
 	Telegram   struct {
-		Channel string        `long:"chan" env:"CHAN" description:"telegram channel"`
+		Channel string        `long:"chan" env:"CHAN" description:"telegram channel for admin notifications"`
 		API     string        `long:"api" env:"API" default:"https://api.telegram.org/bot" description:"telegram api prefix"`
 		Token   string        `long:"token" env:"TOKEN" description:"[deprecated, use --telegram.token] telegram token"`
 		Timeout time.Duration `long:"timeout" env:"TIMEOUT" default:"5s" description:"[deprecated, use --telegram.timeout] telegram timeout"`
@@ -456,16 +456,22 @@ func (s *ServerCommand) newServerApp() (*serverApp, error) {
 	}
 
 	var emailNotifications bool
+	var telegramNotifications bool
 	notifyService, err := s.makeNotify(dataService, authenticator)
 
 	if contains("email", s.Notify.UserTypes) {
 		emailNotifications = true
 	}
 
+	if contains("telegram", s.Notify.UserTypes) {
+		telegramNotifications = true
+	}
+
 	if err != nil {
 		log.Printf("[WARN] failed to make notify service, %s", err)
 		notifyService = notify.NopService // disable notifier
 		emailNotifications = false        // email notifications are not available in this case
+		telegramNotifications = false     // telegram notifications are not available in this case either
 	}
 
 	imgProxy := &proxy.Image{
@@ -488,28 +494,29 @@ func (s *ServerCommand) newServerApp() (*serverApp, error) {
 	}
 
 	srv := &api.Rest{
-		Version:            s.Revision,
-		DataService:        dataService,
-		WebRoot:            s.WebRoot,
-		RemarkURL:          s.RemarkURL,
-		ImageProxy:         imgProxy,
-		CommentFormatter:   commentFormatter,
-		Migrator:           migr,
-		ReadOnlyAge:        s.ReadOnlyAge,
-		SharedSecret:       s.SharedSecret,
-		Authenticator:      authenticator,
-		Cache:              loadingCache,
-		NotifyService:      notifyService,
-		SSLConfig:          sslConfig,
-		UpdateLimiter:      s.UpdateLimit,
-		ImageService:       imageService,
-		EmailNotifications: emailNotifications,
-		EmojiEnabled:       s.EnableEmoji,
-		AnonVote:           s.AnonymousVote && s.RestrictVoteIP,
-		SimpleView:         s.SimpleView,
-		ProxyCORS:          s.ProxyCORS,
-		AllowedAncestors:   s.AllowedHosts,
-		SendJWTHeader:      s.Auth.SendJWTHeader,
+		Version:               s.Revision,
+		DataService:           dataService,
+		WebRoot:               s.WebRoot,
+		RemarkURL:             s.RemarkURL,
+		ImageProxy:            imgProxy,
+		CommentFormatter:      commentFormatter,
+		Migrator:              migr,
+		ReadOnlyAge:           s.ReadOnlyAge,
+		SharedSecret:          s.SharedSecret,
+		Authenticator:         authenticator,
+		Cache:                 loadingCache,
+		NotifyService:         notifyService,
+		SSLConfig:             sslConfig,
+		UpdateLimiter:         s.UpdateLimit,
+		ImageService:          imageService,
+		EmailNotifications:    emailNotifications,
+		TelegramNotifications: telegramNotifications,
+		EmojiEnabled:          s.EnableEmoji,
+		AnonVote:              s.AnonymousVote && s.RestrictVoteIP,
+		SimpleView:            s.SimpleView,
+		ProxyCORS:             s.ProxyCORS,
+		AllowedAncestors:      s.AllowedHosts,
+		SendJWTHeader:         s.Auth.SendJWTHeader,
 	}
 
 	srv.ScoreThresholds.Low, srv.ScoreThresholds.Critical = s.LowScore, s.CriticalScore
@@ -874,28 +881,34 @@ func (s *ServerCommand) makeNotify(dataStore *service.DataStore, authenticator *
 			}
 			destinations = append(destinations, slack)
 		case "telegram":
-			tg, err := notify.NewTelegram(s.Telegram.Token, s.Notify.Telegram.Channel,
-				s.Telegram.Timeout, s.Notify.Telegram.API)
-			if err != nil {
-				return nil, errors.Wrap(err, "failed to create telegram notification destination")
-			}
-			destinations = append(destinations, tg)
 		case "email":
 		case "none":
 			notifyService = notify.NopService
 		default:
-			return nil, errors.Errorf("unsupported notification type %q", s.Notify.Type)
+			return nil, errors.Errorf("unsupported admin notification type %q", s.Notify.Type)
 		}
 	}
 
 	for _, t := range s.Notify.UserTypes {
 		switch t {
+		case "telegram":
 		case "email":
 		case "none":
 			notifyService = notify.NopService
 		default:
-			return nil, errors.Errorf("unsupported notification type %q", s.Notify.Type)
+			return nil, errors.Errorf("unsupported user notification type %q", s.Notify.Type)
 		}
+	}
+
+	if contains("telegram", s.Notify.UserTypes) || contains("telegram", s.Notify.AdminTypes) {
+		if contains("telegram", s.Notify.AdminTypes) && s.Notify.Telegram.Channel == "" {
+			return nil, errors.New("--notify.telegram.channel must be set for admin notifications to work")
+		}
+		tg, err := notify.NewTelegram(s.Telegram.Token, s.Notify.Telegram.Channel, s.Telegram.Timeout, contains("telegram", s.Notify.UserTypes), s.Notify.Telegram.API)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to create telegram notification destination")
+		}
+		destinations = append(destinations, tg)
 	}
 
 	// with logic below admin notifications enable notifications for users on the backend even if they

@@ -18,22 +18,23 @@ import (
 
 // Telegram implements notify.Destination for telegram
 type Telegram struct {
-	channelID string // unique identifier for the target chat or username of the target channel (in the format @channelusername)
-	token     string
-	apiPrefix string
-	timeout   time.Duration
+	channelID           string // unique identifier for the target chat or username of the target channel (in the format @channelusername)
+	token               string
+	apiPrefix           string
+	noUserNotifications bool
+	timeout             time.Duration
 }
 
 const telegramTimeOut = 5000 * time.Millisecond
 const telegramAPIPrefix = "https://api.telegram.org/bot"
 
 // NewTelegram makes telegram bot for notifications
-func NewTelegram(token, channelID string, timeout time.Duration, api string) (*Telegram, error) {
+func NewTelegram(token, channelID string, timeout time.Duration, noUserNotifications bool, api string) (*Telegram, error) {
 	if _, err := strconv.ParseInt(channelID, 10, 64); err != nil {
 		channelID = "@" + channelID // if channelID not a number enforce @ prefix
 	}
 
-	res := Telegram{channelID: channelID, token: token, apiPrefix: api, timeout: timeout}
+	res := Telegram{channelID: channelID, token: token, apiPrefix: api, timeout: timeout, noUserNotifications: noUserNotifications}
 	if res.apiPrefix == "" {
 		res.apiPrefix = telegramAPIPrefix
 	}
@@ -84,8 +85,12 @@ func NewTelegram(token, channelID string, timeout time.Duration, api string) (*T
 	return &res, err
 }
 
-// Send to telegram channel
+// Send to telegram recipients
 func (t *Telegram) Send(ctx context.Context, req Request) error {
+	return t.sendAdminNotification(ctx, req)
+}
+
+func (t *Telegram) sendAdminNotification(ctx context.Context, req Request) error {
 	client := http.Client{Timeout: t.timeout}
 	log.Printf("[DEBUG] send telegram notification to %s, comment id %s", t.channelID, req.Comment.ID)
 
