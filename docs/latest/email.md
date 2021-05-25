@@ -198,18 +198,18 @@ See [verified-authentication](https://github.com/go-pkgz/auth#verified-authentic
 Here is the list of variables which affect email notifications:
 
 ```yaml
-NOTIFY_TYPE
+NOTIFY_USER_TYPES
 NOTIFY_EMAIL_FROM
 NOTIFY_EMAIL_VERIFICATION_SUBJ
 # for administrator notifications for new comments on their site
 ADMIN_SHARED_EMAIL
-NOTIFY_EMAIL_ADMIN
+NOTIFY_ADMIN_TYPES
 ```
 
 After you set `SMTP_` variables, you can allow email notifications by setting these two variables:
 
 ```yaml
-- NOTIFY_TYPE=email
-# - NOTIFY_TYPE=email,telegram # this is in case you want to have both email and telegram notifications enabled
+- NOTIFY_USER_TYPES=email
+# - NOTIFY_USER_TYPES=email,telegram # this is in case you want to have both email and telegram notifications enabled
 - NOTIFY_EMAIL_FROM=notify@example.com
 ```
